@@ -5,26 +5,113 @@ date: "September 25, 2017"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+#Background
+
+People regularly quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise.
+
+This report describes how I built the model, the use of cross validation, the expected out of sample error is, and the reasons for my choices. The model is also used to predict 20 test cases.
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The outcome is the "classe" column.
+
+#Preparation
+
+First, I load the packages needed.
+```{r pkgs, message=FALSE, warning=FALSE, eval=FALSE}
+library(caret)
+library(AppliedPredictiveModeling)
+library(gbm)
+library(randomForest)
+library(rpart)
+```
+I load two datasets: the first is the dataset of 19,622 observations of 160 variables; the second is of twenty test cases to be used for prediction.
+
+```{r readdata, message=FALSE, warning=FALSE, eval=FALSE}
+dat = read.csv("pml-training.csv")
+testcases = read.csv("pml-testing.csv")
+```
+I clean the data by removing the first 7 columns (which are not predictor variables), removing variables with low variance and columns with "NA"s.
+```{r clean, message=FALSE, warning=FALSE, eval=FALSE}
+dat2 <- data.frame(dat[,-(1:7)])
+nzv <-nearZeroVar(dat2)
+dat3 <- dat2[, -nzv]
+dat4 <-dat3[,colSums(is.na(dat3)) ==0]
+```
+I do the same with the test cases. 
+```{r cleantest, message=FALSE, warning=FALSE, eval=FALSE}
+test2 <-data.frame(test[,-(1:7)])
+test3 <- test2[, -nzv]
+test4 <-test3[,colSums(is.na(test3)) ==0]
 ```
 
-## R Markdown
+Next I set a seed to make sure the results are reproducible, then split the 70% of the observations into the training set; the remaining 30% into the testing set.
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r splitdata, message=FALSE, warning=FALSE, eval=FALSE}
+set.seed(125)
+testIndex = createDataPartition(dat4$classe, p =0.70, list=FALSE)
+training = dat4[-testIndex,]
+testing = dat4[testIndex,]
 ```
 
-## Including Plots
+#Model Building
 
-You can also embed plots, for example:
+After cleaning the data, I build 4 models using the training dataset: regression tree, random forests, gradient boosting and linear discrminant analysis.
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+1. Fit regression tree
+```{r RT, message=FALSE, warning=FALSE, eval=FALSE}
+ModFitrpart <- train(classe ~., method = "rpart", data=training)
+predictions <-predict(ModFitrpart, newdata=testing)
+confusionMatrix(predictions, testing$classe)
+```
+2. Fit random forest
+```{r RF, message=FALSE, warning=FALSE, eval=FALSE}
+ModFitrf <- randomForest(classe ~., data=training)
+predictions <-predict(ModFitrf, newdata=testing)
+confusionMatrix(predictions, testing$classe)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+3. Fit gradient boosting model
+```{r GBM, message=FALSE, warning=FALSE, eval=FALSE}
+ModFitgbm <- train(classe ~., method = "gbm", data=training)
+predictions <-predict(ModFitgbm, newdata=testing)
+confusionMatrix(predictions, testing$classe)
+```
+
+4. Fit linear discriminant analysis
+```{r LDA, message=FALSE, warning=FALSE, eval=FALSE}
+ModFitlda <- train(classe ~., method = "lda", data=training)
+predictions <-predict(ModFitlda, newdata=testing)
+confusionMatrix(predictions, testing$classe)
+```
+The following compares the accuracy and kappa coefficients (which takes into account the possibility of agreement happening by chance) of the models when applied to the testing set.
+
+Model                           Accuracy    Kappa
+------------------------------- --------    -----
+1. Regression Tree               49.0%      33.3%
+2. Random Forest                 99.4%      99.3%
+3. Gradient Boosting Model       96.3%      95.3%
+4. Linear Discriminant Analysis  69.6%      61.6%
+------------------------------- --------    -----
+
+I select the random forest model because it predicts with the highest accuracy and kappa coefficients on the testing set.
+
+#Cross-Validation
+
+Cross-validation (other than "holdout" method) is not used for the regression tree, gradient boosting and linear discriminant analysis models. Given the size of the dataset, cross-validation does not increase model performance.
+
+The use of cross-validation is implicit in the random forest model and does not need to be specified. 
+
+#Out of sample error
+
+The "holdout" method, sometimes also called the simplest cross-validation method, is used. The available dataset is split into the training set, comprising 70% of the observations and the testing, or the validation set. The testing set is not used until after the model is built. Predicting with the model and comparing the predictions against the outcomes in the testing set gives the out of sample error. With the random forest model, the out of sample error is 0.6%. 
+
+#Test Cases
+
+The predictions produced by the random forest model resulted in a 100% (20/20) on the test cases.
